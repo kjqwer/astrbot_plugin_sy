@@ -184,7 +184,7 @@ class ParameterValidator:
     HOLIDAY_TYPES = ["workday", "holiday"]
     
     @staticmethod
-    def validate_and_adjust_parameters(week: str = None, repeat: str = None, holiday_type: str = None) -> Tuple[bool, str, Optional[str], Optional[str], Optional[str]]:
+    def validate_and_adjust_parameters(week: Optional[str] = None, repeat: Optional[str] = None, holiday_type: Optional[str] = None) -> Tuple[bool, str, Optional[str], Optional[str], Optional[str]]:
         """
         验证并调整参数，处理参数错位的情况
         
@@ -236,7 +236,7 @@ class DateTimeProcessor:
     """日期时间处理工具类"""
     
     @staticmethod
-    def adjust_datetime_for_week(dt: datetime.datetime, week: str = None) -> datetime.datetime:
+    def adjust_datetime_for_week(dt: datetime.datetime, week: Optional[str] = None) -> datetime.datetime:
         """
         根据指定星期调整日期时间
         
@@ -257,7 +257,7 @@ class DateTimeProcessor:
         return dt
     
     @staticmethod
-    def build_final_repeat(repeat: str = None, holiday_type: str = None) -> str:
+    def build_final_repeat(repeat: Optional[str] = None, holiday_type: Optional[str] = None) -> str:
         """
         构建最终的重复类型字符串
         
@@ -278,7 +278,7 @@ class RepeatDescriptionGenerator:
     """重复类型描述生成器"""
     
     @staticmethod
-    def generate_repeat_description(repeat: str = None, holiday_type: str = None) -> str:
+    def generate_repeat_description(repeat: Optional[str] = None, holiday_type: Optional[str] = None) -> str:
         """
         根据重复类型和节假日类型生成文本说明
         
@@ -321,8 +321,8 @@ class ItemBuilder:
     """数据项构建器"""
     
     @staticmethod
-    def build_reminder_item(text: str, dt: datetime.datetime, creator_id: str, creator_name: str, 
-                          final_repeat: str, target_user_id: str = None) -> Dict[str, Any]:
+    def build_reminder_item(text: str, dt: datetime.datetime, creator_id: str, creator_name: Optional[str],
+                          final_repeat: str, target_user_id: Optional[str] = None) -> Dict[str, Any]:
         """构建提醒数据项"""
         # 如果指定了目标用户ID，则使用目标用户ID，否则使用创建者ID
         actual_creator_id = target_user_id if target_user_id else creator_id
@@ -337,8 +337,8 @@ class ItemBuilder:
         }
     
     @staticmethod
-    def build_task_item(text: str, dt: datetime.datetime, creator_id: str, creator_name: str, 
-                       final_repeat: str, target_user_id: str = None) -> Dict[str, Any]:
+    def build_task_item(text: str, dt: datetime.datetime, creator_id: str, creator_name: Optional[str],
+                       final_repeat: str, target_user_id: Optional[str] = None) -> Dict[str, Any]:
         """构建任务数据项"""
         # 如果指定了目标用户ID，则使用目标用户ID，否则使用创建者ID
         actual_creator_id = target_user_id if target_user_id else creator_id
@@ -354,7 +354,7 @@ class ItemBuilder:
     
     @staticmethod
     def build_command_task_item(clean_display_command: str, commands: List[str], dt: datetime.datetime, 
-                               creator_id: str, creator_name: str, final_repeat: str, 
+                               creator_id: str, creator_name: Optional[str], final_repeat: str,
                                custom_identifier: Optional[dict] = None) -> Dict[str, Any]:
         """构建指令任务数据项"""
         return {
@@ -398,7 +398,7 @@ class SessionHelper:
         return creator_id, raw_msg_origin, msg_origin
     
     @staticmethod
-    def _get_session_id_with_isolation(msg_origin: str, creator_id: str = None) -> str:
+    def _get_session_id_with_isolation(msg_origin: str, creator_id: Optional[str] = None) -> str:
         """
         根据会话隔离设置，获取正确的会话ID
         
@@ -523,8 +523,8 @@ class ResultFormatter:
     """结果格式化工具类"""
     
     @staticmethod
-    def format_success_message(item_type: str, text: str, dt: datetime.datetime, 
-                             start_str: str, repeat_str: str, group_id: str = None) -> str:
+    def format_success_message(item_type: str, text: str, dt: datetime.datetime,
+                             start_str: str, repeat_str: str, group_id: Optional[str] = None) -> str:
         """
         格式化成功消息
         
@@ -548,7 +548,7 @@ class ResultFormatter:
             return f"已{location_str}设置{item_type}:\n内容: {text}\n时间: {dt.strftime('%Y-%m-%d %H:%M')}\n{start_str}{repeat_str}\n\n使用 /rmd ls 查看所有提醒和任务"
     
     @staticmethod
-    def get_week_start_description(dt: datetime.datetime, week: str = None) -> str:
+    def get_week_start_description(dt: datetime.datetime, week: Optional[str] = None) -> str:
         """
         获取星期开始描述
         
@@ -585,10 +585,10 @@ class UnifiedCommandProcessor:
         # 移除对tools的直接引用，避免循环依赖
         self.custom_command_prefix = star_instance.custom_command_prefix
     
-    async def process_add_item(self, event: AstrMessageEvent, item_type: str, content: str, 
-                              time_str: str, week: str = None, repeat: str = None, 
-                              holiday_type: str = None, group_id: str = None, 
-                              time_already_parsed: bool = False, user_name: str = None):
+    async def process_add_item(self, event: AstrMessageEvent, item_type: str, content: str,
+                              time_str: str, week: Optional[str] = None, repeat: Optional[str] = None,
+                              holiday_type: Optional[str] = None, group_id: Optional[str] = None,
+                              time_already_parsed: bool = False, user_name: Optional[str] = None):
         """
         统一处理添加项目的逻辑
         
@@ -629,7 +629,7 @@ class UnifiedCommandProcessor:
                 return
 
             # 3. 处理特殊的指令任务逻辑
-            commands = None
+            commands: Optional[List[str]] = None
             custom_identifier = None
             clean_display_command = content
             
@@ -638,11 +638,15 @@ class UnifiedCommandProcessor:
                 display_command, commands, custom_identifier = CommandUtils.parse_multi_command(content)
                 
                 # 验证命令列表
-                is_valid, error_msg = CommandUtils.validate_commands(commands, self.custom_command_prefix)
-                if not is_valid:
-                    yield event.plain_result(f"指令格式错误：{error_msg}")
+                if commands:
+                    is_valid, error_msg = CommandUtils.validate_commands(commands, self.custom_command_prefix)
+                    if not is_valid:
+                        yield event.plain_result(f"指令格式错误：{error_msg}")
+                        return
+                else:
+                    yield event.plain_result("指令格式错误：未能解析出有效指令。")
                     return
-                
+
                 # 格式化显示命令
                 clean_display_command = CommandUtils.format_command_display(display_command, commands)
 
@@ -654,9 +658,11 @@ class UnifiedCommandProcessor:
                 msg_origin = SessionHelper.build_remote_session_id(event, group_id, self.unique_session)
             else:
                 # 本地操作
-                creator_id, raw_msg_origin, msg_origin = SessionHelper.get_session_info(
+                _creator_id, raw_msg_origin, msg_origin = SessionHelper.get_session_info(
                     event, self.unique_session
                 )
+                # 确保 creator_id 和 creator_name 是从 get_creator_info 获取的
+                creator_id = _creator_id
 
             # 4.1. 在群聊中根据user_name查找目标用户ID（仅对提醒和任务生效）
             target_user_id = None
@@ -692,13 +698,18 @@ class UnifiedCommandProcessor:
 
             # 8. 构建数据项
             if item_type == 'command_task':
-                item = ItemBuilder.build_command_task_item(
-                    clean_display_command, commands, dt, creator_id, creator_name, 
-                    final_repeat, custom_identifier
-                )
+                if commands:
+                    item = ItemBuilder.build_command_task_item(
+                        clean_display_command, commands, dt, creator_id, creator_name,
+                        final_repeat, custom_identifier
+                    )
+                else:
+                    # This case should ideally not be reached if validation is correct
+                    yield event.plain_result("创建指令任务失败：无效的指令。")
+                    return
             elif item_type == 'task':
                 item = ItemBuilder.build_task_item(
-                    final_repeat, custom_identifier, role_name, target_user_id
+                    content, dt, creator_id, creator_name, final_repeat, target_user_id
                 )
             else:  # reminder
                 item = ItemBuilder.build_reminder_item(
@@ -730,7 +741,10 @@ class UnifiedCommandProcessor:
             
             # 格式化成功消息
             if item_type == 'command_task':
-                command_desc = CommandUtils.get_command_description(commands)
+                if commands:
+                    command_desc = CommandUtils.get_command_description(commands)
+                else:
+                    command_desc = ""
                 success_msg = ResultFormatter.format_success_message(
                     type_name, command_desc, dt, start_str, repeat_str, group_id
                 )

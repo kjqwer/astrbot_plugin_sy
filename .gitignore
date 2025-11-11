@@ -1,1 +1,7 @@
-__pycache__
+*__pycache__*
+
+.gitignore
+
+astrbot
+astrbot/*
+astrbot/__init__.py
