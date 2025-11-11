@@ -13,7 +13,7 @@ from .qq_id_cache import init_qq_id_cache
 
 @register("ai_reminder", "kjqwdw", "智能定时任务，输入/rmd help查看帮助", "1.3.9")
 class SmartReminder(Star):
-    def __init__(self, context: Context, config: AstrBotConfig = None):
+    def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         
         # 保存配置
@@ -91,7 +91,7 @@ class SmartReminder(Star):
             logger.warning(f"框架数据目录获取失败: {e}")
         
         # 初始化数据存储
-        self.reminder_data = load_reminder_data(self.data_file)
+        self.reminder_data = load_reminder_data(str(self.data_file))
         
         # 初始化兼容性处理器（传入context）
         self.compatibility_handler = CompatibilityHandler(self.reminder_data, context)
@@ -122,7 +122,7 @@ class SmartReminder(Star):
         logger.info(f"用户白名单：{'已启用' if self.whitelist.strip() else '未启用'}")
 
     @filter.llm_tool(name="set_reminder_or_task")
-    async def set_reminder_or_task(self, event, text: str, datetime_str: str, is_task: str = "no", user_name: str = "用户", repeat: str = None, holiday_type: str = None, group_id: str = None):
+    async def set_reminder_or_task(self, event, text: str, datetime_str: str, is_task: str = "no", user_name: str = "用户", repeat: str | None = None, holiday_type: str | None = None, group_id: str | None = None):
         '''设置一个提醒或任务，到时间后会提醒用户或让AI执行该任务
         
         Args:
@@ -142,15 +142,15 @@ class SmartReminder(Star):
 
     @filter.llm_tool(name="delete_reminder_or_task")
     async def delete_reminder_or_task(self, event, 
-                            content: str = None,           # 提醒/任务内容关键词
-                            time: str = None,              # 具体时间点 HH:MM
-                            weekday: str = None,           # 星期 mon,tue,wed,thu,fri,sat,sun
-                            repeat_type: str = None,       # 重复类型 daily,weekly,monthly,yearly,none
-                            date: str = None,              # 具体日期 YYYY-MM-DD
-                            all: str = None,               # 是否删除所有 "yes"/"no"
+                            content: str | None = None,           # 提醒/任务内容关键词
+                            time: str | None = None,              # 具体时间点 HH:MM
+                            weekday: str | None = None,           # 星期 mon,tue,wed,thu,fri,sat,sun
+                            repeat_type: str | None = None,       # 重复类型 daily,weekly,monthly,yearly,none
+                            date: str | None = None,              # 具体日期 YYYY-MM-DD
+                            all: str | None = None,               # 是否删除所有 "yes"/"no"
                             task_only: str = "no",         # 是否只删除任务 "yes"/"no"
                             reminder_only: str = "no",     # 是否只删除提醒 "yes"/"no"
-                            group_id: str = None           # 可选，指定群聊ID
+                            group_id: str | None = None           # 可选，指定群聊ID
                             ):
         '''删除符合条件的提醒或任务，可组合多个条件进行精确筛选
         
@@ -171,6 +171,15 @@ class SmartReminder(Star):
                                                "yes" if is_task_only else "no", 
                                                "yes" if is_reminder_only else "no", 
                                                group_id)
+
+    @filter.llm_tool(name="list_reminders_and_tasks")
+    async def list_all_reminders_and_tasks(self, event, group_id: str | None = None):
+        '''列出当前会话或指定群聊中的所有提醒和任务
+        
+        Args:
+            group_id(string): 可选，指定群聊ID，用于列出特定群聊中的提醒或任务
+        '''
+        return await self.tools.list_all_reminders_and_tasks(event, group_id)
         
     # 命令组必须定义在主类中
     @command_group("rmd")
@@ -195,7 +204,7 @@ class SmartReminder(Star):
             yield result
 
     @rmd.command("add")
-    async def add_reminder(self, event: AstrMessageEvent, text: str, time_str: str, week: str = None, repeat: str = None, holiday_type: str = None):
+    async def add_reminder(self, event: AstrMessageEvent, text: str, time_str: str, week: str | None = None, repeat: str | None = None, holiday_type: str | None = None):
         '''手动添加提醒
         
         Args:
@@ -209,7 +218,7 @@ class SmartReminder(Star):
             yield result
 
     @rmd.command("task")
-    async def add_task(self, event: AstrMessageEvent, text: str, time_str: str, week: str = None, repeat: str = None, holiday_type: str = None):
+    async def add_task(self, event: AstrMessageEvent, text: str, time_str: str, week: str | None = None, repeat: str | None = None, holiday_type: str | None = None):
         '''手动添加任务
         
         Args:
@@ -229,7 +238,7 @@ class SmartReminder(Star):
             yield result
 
     @rmd.command("command")
-    async def add_command_task(self, event: AstrMessageEvent, command: str, time_str: str, week: str = None, repeat: str = None, holiday_type: str = None):
+    async def add_command_task(self, event: AstrMessageEvent, command: str, time_str: str, week: str | None = None, repeat: str | None = None, holiday_type: str | None = None):
         '''设置指令任务
         
         Args:
@@ -249,7 +258,7 @@ class SmartReminder(Star):
         pass
 
     @rmdg.command("add")
-    async def add_remote_reminder(self, event: AstrMessageEvent, group_id: str, text: str, time_str: str, week: str = None, repeat: str = None, holiday_type: str = None):
+    async def add_remote_reminder(self, event: AstrMessageEvent, group_id: str, text: str, time_str: str, week: str | None = None, repeat: str | None = None, holiday_type: str | None = None):
         '''在指定群聊中手动添加提醒
         
         Args:
@@ -264,7 +273,7 @@ class SmartReminder(Star):
             yield result
 
     @rmdg.command("task")
-    async def add_remote_task(self, event: AstrMessageEvent, group_id: str, text: str, time_str: str, week: str = None, repeat: str = None, holiday_type: str = None):
+    async def add_remote_task(self, event: AstrMessageEvent, group_id: str, text: str, time_str: str, week: str | None = None, repeat: str | None = None, holiday_type: str | None = None):
         '''在指定群聊中手动添加任务
         
         Args:
@@ -279,7 +288,7 @@ class SmartReminder(Star):
             yield result
 
     @rmdg.command("command")
-    async def add_remote_command_task(self, event: AstrMessageEvent, group_id: str, command: str, time_str: str, week: str = None, repeat: str = None, holiday_type: str = None):
+    async def add_remote_command_task(self, event: AstrMessageEvent, group_id: str, command: str, time_str: str, week: str | None = None, repeat: str | None = None, holiday_type: str | None = None):
         '''在指定群聊中设置指令任务
         
         Args:

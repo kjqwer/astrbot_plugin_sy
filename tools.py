@@ -51,7 +51,7 @@ class ReminderTools:
         
         return msg_origin
     
-    async def set_reminder(self, event: Union[AstrMessageEvent, Context], text: str, datetime_str: str, user_name: str = "用户", repeat: str = None, holiday_type: str = None, group_id: str = None):
+    async def set_reminder(self, event: Union[AstrMessageEvent, Context], text: str, datetime_str: str, user_name: str = "用户", repeat: str | None = None, holiday_type: str | None = None, group_id: str | None = None):
         '''设置一个提醒
         
         Args:
@@ -114,7 +114,7 @@ class ReminderTools:
         except Exception as e:
             return f"设置提醒时出错：{str(e)}"
     
-    async def set_task(self, event: Union[AstrMessageEvent, Context], text: str, datetime_str: str, repeat: str = None, holiday_type: str = None, group_id: str = None, user_name: str = None):
+    async def set_task(self, event: Union[AstrMessageEvent, Context], text: str, datetime_str: str, repeat: str | None = None, holiday_type: str | None = None, group_id: str | None = None, user_name: str | None = None):
         '''设置一个任务，到时间后会让AI执行该任务
         
         Args:
@@ -165,7 +165,7 @@ class ReminderTools:
         except Exception as e:
             return f"设置任务时出错：{str(e)}"
     
-    async def _legacy_set_reminder(self, event: Context, text: str, datetime_str: str, user_name: str = "用户", repeat: str = None, holiday_type: str = None):
+    async def _legacy_set_reminder(self, event: Context, text: str, datetime_str: str, user_name: str = "用户", repeat: str | None = None, holiday_type: str | None = None):
         '''兼容Context模式的设置提醒方法（原有逻辑）'''
         try:
             msg_origin = self.context.get_event_queue()._queue[0].session_id
@@ -244,7 +244,7 @@ class ReminderTools:
         except Exception as e:
             return f"设置提醒时出错：{str(e)}"
 
-    async def _legacy_set_task(self, event: Context, text: str, datetime_str: str, repeat: str = None, holiday_type: str = None):
+    async def _legacy_set_task(self, event: Context, text: str, datetime_str: str, repeat: str | None = None, holiday_type: str | None = None):
         '''兼容Context模式的设置任务方法（原有逻辑）'''
         try:
             msg_origin = self.context.get_event_queue()._queue[0].session_id
@@ -323,16 +323,16 @@ class ReminderTools:
         except Exception as e:
             return f"设置任务时出错：{str(e)}"
     
-    async def delete_reminder(self, event: Union[AstrMessageEvent, Context], 
-                            content: str = None,           # 任务内容关键词
-                            time: str = None,              # 具体时间点 HH:MM
-                            weekday: str = None,           # 星期 mon,tue,wed,thu,fri,sat,sun
-                            repeat_type: str = None,       # 重复类型 daily,weekly,monthly,yearly
-                            date: str = None,              # 具体日期 YYYY-MM-DD
-                            all: str = None,               # 是否删除所有 "yes"/"no"
+    async def delete_reminder(self, event: Union[AstrMessageEvent, Context],
+                            content: str | None = None,           # 任务内容关键词
+                            time: str | None = None,              # 具体时间点 HH:MM
+                            weekday: str | None = None,           # 星期 mon,tue,wed,thu,fri,sat,sun
+                            repeat_type: str | None = None,       # 重复类型 daily,weekly,monthly,yearly
+                            date: str | None = None,              # 具体日期 YYYY-MM-DD
+                            all: str | None = None,               # 是否删除所有 "yes"/"no"
                             task_only: str = "no",       # 是否只删除任务
                             reminder_only: str = "no",    # 是否只删除提醒
-                            group_id: str = None          # 可选，指定群聊ID
+                            group_id: str | None = None          # 可选，指定群聊ID
                             ):
         '''删除符合条件的提醒或者任务，可组合多个条件进行精确筛选
         
@@ -556,3 +556,38 @@ class ReminderTools:
             
         except Exception as e:
             return f"删除提醒或任务时出错：{str(e)}"
+
+    async def list_all_reminders_and_tasks(self, event: Union[AstrMessageEvent, Context], group_id: str | None = None):
+        '''列出当前会话或指定群聊中的所有提醒和任务
+        
+        Args:
+            group_id(string): 可选，指定群聊ID，用于列出特定群聊中的提醒或任务
+        '''
+        # 权限检查
+        if hasattr(event, 'get_sender_id'):
+            from .utils import check_permission_and_return_error
+            error_msg = check_permission_and_return_error(event, self.star.whitelist)
+            if error_msg:
+                return error_msg
+        
+        try:
+            if isinstance(event, Context):
+                msg_origin = self.context.get_event_queue()._queue[0].session_id
+            else:
+                creator_id = event.get_sender_id()
+                if group_id:
+                    # 远程群聊操作
+                    from .command_utils import SessionHelper
+                    msg_origin = SessionHelper.build_remote_session_id(event, group_id, self.unique_session)
+                else:
+                    # 本地操作
+                    raw_msg_origin = event.unified_msg_origin
+                    msg_origin = self.get_session_id(raw_msg_origin, creator_id)
+            
+            reminders = self.star.compatibility_handler.get_reminders(msg_origin)
+            
+            from .command_utils import ListGenerator
+            return ListGenerator.generate_list_string(reminders)
+            
+        except Exception as e:
+            return f"列出提醒或任务时出错：{str(e)}"

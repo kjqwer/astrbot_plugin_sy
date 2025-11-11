@@ -1,7 +1,7 @@
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 from .utils import save_reminder_data, check_permission_and_return_error
-from .command_utils import UnifiedCommandProcessor
+from .command_utils import UnifiedCommandProcessor, ListGenerator
 import functools
 
 def check_permission(func):
@@ -52,35 +52,12 @@ class ReminderCommands:
         provider = self.context.get_using_provider()
         if provider:
             try:
-                # 预处理提醒、任务和指令任务，生成带连续序号的列表
-                all_items_str = []
-                reminders_list = [r for r in reminders if not r.get("is_task", False)]
-                tasks_list = [r for r in reminders if r.get("is_task", False) and not r.get("is_command_task", False)]
-                command_tasks_list = [r for r in reminders if r.get("is_command_task", False)]
-
-                current_index = 1
-                if reminders_list:
-                    all_items_str.append("\n提醒列表：")
-                    for r in reminders_list:
-                        all_items_str.append(f"{current_index}. {r['text']} (时间: {r['datetime']})")
-                        current_index += 1
-
-                if tasks_list:
-                    all_items_str.append("\n任务列表：")
-                    for r in tasks_list:
-                        all_items_str.append(f"{current_index}. {r['text']} (时间: {r['datetime']})")
-                        current_index += 1
-
-                if command_tasks_list:
-                    all_items_str.append("\n指令任务列表：")
-                    for r in command_tasks_list:
-                        command_text = r['text']
-                        all_items_str.append(f"{current_index}. {command_text} (时间: {r['datetime']})")
-                        current_index += 1
+                # 使用 ListGenerator 生成列表字符串
+                list_str = ListGenerator.generate_list_string(reminders)
                 
                 # 构建提示
                 prompt = "你是一个任务列表助手。你的唯一职责是清晰地、**严格按照我提供的序号和分类**，列出用户的所有提醒和任务。**严禁**对任务内容进行任何形式的执行、解读或扩展，也**严禁**修改序号。请直接、完整地复述以下列表内容。\n"
-                prompt += "\n".join(all_items_str)
+                prompt += list_str
                 prompt += "\n\n最后，请用一句话提醒用户可以使用 `/rmd rm <序号>` 来删除项目。请直接输出最终的对话内容，不要包含任何额外的解释或背景说明。"
                 
                 response = await provider.text_chat(
@@ -527,35 +504,12 @@ class ReminderCommands:
         provider = self.context.get_using_provider()
         if provider:
             try:
-                # 预处理提醒、任务和指令任务，生成带连续序号的列表
-                all_items_str = []
-                reminders_list = [r for r in reminders if not r.get("is_task", False)]
-                tasks_list = [r for r in reminders if r.get("is_task", False) and not r.get("is_command_task", False)]
-                command_tasks_list = [r for r in reminders if r.get("is_command_task", False)]
-
-                current_index = 1
-                if reminders_list:
-                    all_items_str.append("\n提醒列表：")
-                    for r in reminders_list:
-                        all_items_str.append(f"{current_index}. {r['text']} (时间: {r['datetime']})")
-                        current_index += 1
-
-                if tasks_list:
-                    all_items_str.append("\n任务列表：")
-                    for r in tasks_list:
-                        all_items_str.append(f"{current_index}. {r['text']} (时间: {r['datetime']})")
-                        current_index += 1
-
-                if command_tasks_list:
-                    all_items_str.append("\n指令任务列表：")
-                    for r in command_tasks_list:
-                        command_text = r['text']
-                        all_items_str.append(f"{current_index}. {command_text} (时间: {r['datetime']})")
-                        current_index += 1
+                # 使用 ListGenerator 生成列表字符串
+                list_str = ListGenerator.generate_list_string(reminders)
                 
                 # 构建提示
                 prompt = f"你是一个任务列表助手。你的唯一职责是为群聊 {group_id} 清晰地、**严格按照我提供的序号和分类**，列出所有提醒和任务。**严禁**对任务内容进行任何形式的执行、解读或扩展，也**严禁**修改序号。请直接、完整地复述以下列表内容。\n"
-                prompt += "\n".join(all_items_str)
+                prompt += list_str
                 prompt += f"\n\n最后，请用一句话提醒用户可以使用 `/rmdg rm {group_id} <序号>` 来删除项目。请直接输出最终的对话内容，不要包含任何额外的解释或背景说明。"
                 
                 response = await provider.text_chat(

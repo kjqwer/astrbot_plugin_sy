@@ -55,11 +55,11 @@ def parse_datetime_for_llm(datetime_str: str) -> str:
 
 def parse_datetime(datetime_str: str) -> str:
     '''解析时间字符串，支持多种时间格式'''
+    original_input = datetime_str
     try:
         today = datetime.datetime.now()
         
         # 记录原始输入
-        original_input = datetime_str
         logger.info(f"parse_datetime 收到输入: '{original_input}'")
         
         # 处理输入字符串，去除多余空格
@@ -302,7 +302,7 @@ def check_permission_and_return_error(event, whitelist):
     has_permission, error_msg = check_user_permission(user_id, whitelist)
     return error_msg if not has_permission else None
 
-def check_reminder_limit(reminder_data: dict, session_key: str, max_reminders_per_user: int, unique_session: bool, creator_id: str = None) -> tuple:
+def check_reminder_limit(reminder_data: dict, session_key: str, max_reminders_per_user: int, unique_session: bool, creator_id: str | None = None) -> tuple:
     '''检查提醒数量限制
     
     Args:
@@ -420,7 +420,7 @@ class HolidayManager:
         except Exception as e:
             logger.error(f"保存节假日数据缓存失败: {e}")
             
-    async def fetch_holiday_data(self, year: int = None) -> dict:
+    async def fetch_holiday_data(self, year: int | None = None) -> dict:
         """获取指定年份的节假日数据
         
         Args:
@@ -469,7 +469,7 @@ class HolidayManager:
             logger.error(f"获取节假日数据出错: {e}")
             return {}
     
-    async def is_holiday(self, date: datetime.datetime = None) -> bool:
+    async def is_holiday(self, date: datetime.datetime | None = None) -> bool:
         """判断指定日期是否为法定节假日
         
         Args:
@@ -501,7 +501,7 @@ class HolidayManager:
             
         return False
     
-    async def is_workday(self, date: datetime.datetime = None) -> bool:
+    async def is_workday(self, date: datetime.datetime | None = None) -> bool:
         """判断指定日期是否为工作日
         
         Args:
