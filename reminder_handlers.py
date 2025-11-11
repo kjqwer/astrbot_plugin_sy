@@ -175,8 +175,8 @@ class TaskExecutor:
         try:
             original_from_str = MessageSesion.from_str
             
-            @classmethod
-            def safe_from_str(cls, session_str):
+            # 修复：移除 @classmethod 并修正签名
+            def safe_from_str(session_str):
                 try:
                     # 先尝试原始方法
                     return original_from_str(session_str)
@@ -191,12 +191,13 @@ class TaskExecutor:
                         platform = parts[0]
                         
                         # 智能判断消息类型
+                        msg_type_str = "FriendMessage"
                         if "FriendMessage" in session_str:
-                            message_type = "FriendMessage"
+                            msg_type_str = "FriendMessage"
                         elif "GroupMessage" in session_str:
-                            message_type = "GroupMessage"
+                            msg_type_str = "GroupMessage"
                         else:
-                            message_type = parts[1] if len(parts) > 1 else "FriendMessage"
+                            msg_type_str = parts[1] if len(parts) > 1 else "FriendMessage"
                             
                         # 将剩余部分重新组合作为session_id
                         session_id = ":".join(parts[2:]) if len(parts) > 2 else "unknown"
@@ -204,16 +205,18 @@ class TaskExecutor:
                         # 处理简单情况
                         parts = session_str.split(":", 1)
                         platform = parts[0] if parts else "unknown"
-                        message_type = "FriendMessage"  # 默认为私聊
+                        msg_type_str = "FriendMessage"  # 默认为私聊
                         session_id = parts[1] if len(parts) > 1 else session_str
                     
                     # 尝试创建MessageSesion对象
                     try:
-                        return cls(platform, message_type, session_id)
+                        # 修复：使用 MessageType 枚举
+                        message_type = MessageType.FRIEND_MESSAGE if msg_type_str == "FriendMessage" else MessageType.GROUP_MESSAGE
+                        return MessageSesion(platform, message_type, session_id)
                     except Exception as inner_e:
                         logger.error(f"创建安全MessageSesion失败: {str(inner_e)}")
                         # 如果还是失败，返回一个硬编码的对象
-                        return cls("unknown", "FriendMessage", "unknown")
+                        return MessageSesion("unknown", MessageType.FRIEND_MESSAGE, "unknown")
             
             # 应用猴子补丁
             if hasattr(MessageSesion, "from_str"):
@@ -247,7 +250,7 @@ class TaskExecutor:
         if not hasattr(event, "reply"):
             async def reply_func(content):
                 # 这个属性现在不再用于控制流程，但为了兼容可能依赖它的旧函数，暂时保留
-                event._has_send_oper = True
+                setattr(event, '_has_send_oper', True)
                 msg_chain = MessageChain()
                 if isinstance(content, str):
                     msg_chain.chain.append(Plain(content))
@@ -259,10 +262,6 @@ class TaskExecutor:
         # 添加session_id属性
         if not hasattr(event, "session_id"):
             event.session_id = send_session_id
-        
-        # unified_msg_origin会在AstrMessageEvent构造函数中自动生成，但我们要确保它是正确的
-        # 如果需要，可以手动覆盖（但通常不需要）
-        # event.unified_msg_origin = send_session_id
         
         # 添加get_session_id方法
         if not hasattr(event, "get_session_id"):
@@ -326,33 +325,25 @@ class TaskExecutor:
     
     def _create_event_object(self, task_text: str, unified_msg_origin: str, reminder: dict, is_private_chat: bool, send_session_id: str):
         """创建事件对象"""
-        # 创建基本消息对象
         msg = AstrBotMessage()
         msg.message_str = task_text
-        msg.session_id = send_session_id  # 使用发送用的session_id
+        msg.session_id = send_session_id
         msg.type = MessageType.FRIEND_MESSAGE if is_private_chat else MessageType.GROUP_MESSAGE
-        
-        # 设置机器人自身ID（很多插件可能需要这个）
         msg.self_id = "astrbot_reminder"
         
-        # 设置消息链（包含任务文本）
         from astrbot.core.message.components import Plain
         msg.message = [Plain(task_text)]
         
-        # 如果有创建者ID，则设置发送者信息
         if "creator_id" in reminder:
             msg.sender = MessageMember(reminder["creator_id"], reminder.get("creator_name", "用户"))
         else:
             msg.sender = MessageMember("unknown", "用户")
         
-        # 设置群组ID（如果是群聊）
         if not is_private_chat:
-            # 从session_id中提取群组ID
             if ":" in send_session_id:
                 parts = send_session_id.split(":")
                 if len(parts) >= 3:
                     group_id_part = parts[2]
-                    # 处理群组ID，去掉可能的用户隔离后缀
                     if "_" in group_id_part:
                         group_id_part = group_id_part.split("_")[0]
                     msg.group_id = group_id_part
@@ -360,19 +351,15 @@ class TaskExecutor:
                     msg.group_id = "unknown"
             else:
                 msg.group_id = "unknown"
-        else:
-            msg.group_id = None
-            
-        # 使用兼容性工具来提取平台类型
+        
         platform_name = get_platform_type_from_origin(unified_msg_origin, self.context)
         platform_id = get_platform_id_from_origin(unified_msg_origin)
 
-        # 创建事件对象 - 重要：session_id只需要ID部分，不要包含平台前缀
         raw_session_id = send_session_id
         if ":" in send_session_id:
             parts = send_session_id.split(":")
             if len(parts) >= 3:
-                raw_session_id = parts[2]  # 只取ID部分
+                raw_session_id = parts[2]
             else:
                 raw_session_id = send_session_id
         
@@ -381,165 +368,158 @@ class TaskExecutor:
             message_str=task_text,
             message_obj=msg,
             platform_meta=meta,
-            session_id=raw_session_id  # 只传入纯粹的session_id
+            session_id=raw_session_id
         )
         
-        # 添加特殊属性，供函数调用时使用
-        event._send_session_id = send_session_id
-        # 这个属性现在不再用于控制流程，但为了兼容可能依赖它的旧函数，暂时保留
-        event._has_send_oper = False
+        # 使用 setattr 动态添加属性以绕过静态检查
+        setattr(event, '_send_session_id', send_session_id)
+        setattr(event, '_has_send_oper', False)
         
-        # 添加平台辅助工具到消息对象
         if not hasattr(event.message_obj, "platform"):
-            event.message_obj.platform = self._create_platform_helper(send_session_id)
+            setattr(event.message_obj, 'platform', self._create_platform_helper(send_session_id))
         
-        # 确保事件对象具有所有可能需要的属性
         self._ensure_event_attributes(event, send_session_id, reminder, is_private_chat, platform_name)
         
         return event
     
+    # 修复：恢复被误删的 _get_send_session_id 方法
+    def _get_send_session_id(self, unified_msg_origin: str, is_private_chat: bool) -> str:
+        """获取用于发送消息的、格式完整的会话ID"""
+        send_session_id = self.message_handler.get_original_session_id(unified_msg_origin)
+        
+        if ":" in send_session_id:
+            return send_session_id
+        else:
+            platform_name = get_platform_type_from_origin(unified_msg_origin, self.context)
+            msg_type_str = "FriendMessage" if is_private_chat else "GroupMessage"
+            return f"{platform_name}:{msg_type_str}:{send_session_id}"
+
     async def execute_task(self, unified_msg_origin: str, reminder: dict, provider, func_tool):
-        """执行任务"""
+        """【重构】执行任务"""
         task_text = reminder['text']
         logger.info(f"Task Activated: {task_text}, attempting to execute for {unified_msg_origin}")
         
-        # 应用安全解析器补丁
         self._apply_safe_session_parser()
         
-        # 获取配置
         enable_context = self.config.get("enable_context", True)
         max_context_count = self.config.get("max_context_count", 5)
         
+        # 修复：在 try 块外初始化 original_msg_origin
+        original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
+
         try:
-            # 获取对话上下文
-            original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
+            # 1. 获取对话上下文和预设人设
             curr_cid = None
             conversation = None
             contexts = []
-            
+            system_prompt = ""
+
+            # 从 PersonaManager 获取预设人设
+            try:
+                persona = await self.context.persona_manager.get_default_persona_v3(umo=unified_msg_origin)
+                system_prompt = persona["prompt"]
+                logger.info(f"成功获取会话人设: {persona['name']}")
+            except Exception as e:
+                logger.error(f"获取会话人设失败，将使用默认值: {e}")
+                system_prompt = "You are a helpful assistant."
+
             if enable_context:
                 curr_cid = await self.context.conversation_manager.get_curr_conversation_id(original_msg_origin)
                 if curr_cid:
                     conversation = await self.context.conversation_manager.get_conversation(original_msg_origin, curr_cid)
                     if conversation:
-                        contexts = json.loads(conversation.history)
+                        history_json = conversation.history or "[]"
+                        contexts = json.loads(history_json)
                         logger.info(f"任务模式：找到用户对话，对话ID: {curr_cid}, 上下文长度: {len(contexts)}")
                 
                 if not curr_cid or not conversation:
                     curr_cid = await self.context.conversation_manager.new_conversation(original_msg_origin)
-                    conversation = await self.context.conversation_manager.get_conversation(original_msg_origin, curr_cid)
                     logger.info(f"创建新对话，对话ID: {curr_cid}")
-            
-            # 构造初始上下文和Prompt
-            new_contexts = contexts.copy()
-            new_contexts.append({"role": "user", "content": task_text})
 
+            # 2. 构造初始Prompt
             prompt = f"请执行以下任务：{task_text}。请直接执行，不要提及这是一个预设任务。"
             if task_text.startswith("请调用") and "函数" in task_text:
                 prompt = f"用户请求你执行以下操作：{task_text}。请直接执行这个任务，不要解释你在做什么，就像用户刚刚发出这个请求一样。"
             
-            logger.info(f"发送提示词到LLM: {prompt[:50]}...")
+            # 3. 首次调用LLM
+            logger.info(f"首次调用LLM: {prompt[:100]}...")
             
-            system_prompt = "你可以调用各种函数来帮助用户完成任务，如获取天气、设置提醒等。请根据用户的需求直接调用相应的函数。"
-            
-            # 调用LLM
+            first_call_history = contexts.copy()
+            first_call_history.append({"role": "user", "content": task_text})
+
             response = await provider.text_chat(
                 prompt=prompt,
                 session_id=unified_msg_origin,
-                contexts=contexts[:max_context_count] if contexts and enable_context else [],
+                contexts=first_call_history,
                 func_tool=func_tool,
                 system_prompt=system_prompt
             )
             
-            logger.info(f"LLM响应类型: {response.role}")
+            logger.info(f"LLM首次响应类型: {response.role}")
             
-            result_msg = MessageChain()
+            final_reply_text = ""
             
-            # 检查是否有工具调用
+            # 4. 根据LLM的首次响应进行处理
             if response.role == "tool" and hasattr(response, 'tools_call_name') and response.tools_call_name:
-                # 统一处理工具调用，此函数现在负责更新上下文并返回工具的原始结果
-                tool_results = await self._handle_tool_calls(response, func_tool, task_text, unified_msg_origin, reminder, new_contexts)
+                # 场景：LLM决定调用工具
+                tool_results = await self._handle_tool_calls(response, func_tool, task_text, unified_msg_origin, reminder)
                 
-                # 基于工具结果，生成最终回复
-                final_reply_text = await self._process_tool_results(tool_results, task_text, unified_msg_origin)
-                result_msg.chain.append(Plain(final_reply_text))
-                new_contexts.append({"role": "assistant", "content": final_reply_text})
+                final_reply_text = await self._summarize_tool_results(
+                    tool_results=tool_results, 
+                    task_text=task_text, 
+                    unified_msg_origin=unified_msg_origin, 
+                    provider=provider, 
+                    system_prompt=system_prompt
+                )
 
             elif response.role == "assistant" and response.completion_text:
-                # 如果只有文本回复，直接使用
-                result_msg.chain.append(Plain(response.completion_text))
-                new_contexts.append({"role": "assistant", "content": response.completion_text})
+                # 场景：LLM直接返回文本回复
+                final_reply_text = response.completion_text
             else:
-                # 没有文本回复也没有工具调用，返回默认消息
-                default_msg = "任务执行完成，但未返回结果。"
-                result_msg.chain.append(Plain(default_msg))
-                new_contexts.append({"role": "assistant", "content": default_msg})
-            
-            # 统一发送结果汇报
+                # 场景：未知或空回复
+                final_reply_text = "任务执行完成，但未返回明确结果。"
+
+            # 5. 统一发送结果汇报
+            result_msg = MessageChain([Plain(final_reply_text)])
             await self._send_task_result(unified_msg_origin, reminder, result_msg)
             
-            # 统一更新对话历史
+            # 6. 统一更新对话历史
             if enable_context and curr_cid:
-                await self._update_conversation_history(original_msg_origin, curr_cid, new_contexts)
+                history_to_save = contexts.copy()
+                history_to_save.append({"role": "user", "content": task_text})
+                history_to_save.append({"role": "assistant", "content": final_reply_text})
+                await self._update_conversation_history(original_msg_origin, curr_cid, history_to_save)
             
-            logger.info(f"Task executed: {task_text}")
+            logger.info(f"Task executed successfully: {task_text}")
             
         except Exception as e:
             logger.error(f"执行任务时出错: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
-            
-            # 尝试发送错误消息
-            error_msg = MessageChain()
-            error_msg.chain.append(Plain(f"执行任务时出错: {str(e)}"))
-            
-            original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
-            await self.context.send_message(original_msg_origin, error_msg)
+            await self.context.send_message(original_msg_origin, f"执行任务时出错: {str(e)}")
+
     
     async def _execute_command_task(self, unified_msg_origin: str, reminder: dict, command: str):
         """执行指令任务"""
         try:
-            # 创建指令触发器
             from .command_trigger import CommandTrigger
             trigger = CommandTrigger(self.context, self.wechat_platforms, self.config)
-            
-            # 直接触发指令并转发结果
             await trigger.trigger_and_forward_command(unified_msg_origin, reminder, command)
-            
         except Exception as e:
             logger.error(f"执行指令任务时出错: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
-            
-            # 发送错误消息
-            error_msg = MessageChain()
-            error_msg.chain.append(Plain(f"执行指令任务 /{command} 时出错: {str(e)}"))
-            
-            original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
-            await self.context.send_message(original_msg_origin, error_msg)
+            await self.context.send_message(
+                self.message_handler.get_original_session_id(unified_msg_origin),
+                f"执行指令任务 /{command} 时出错: {str(e)}"
+            )
     
-    async def _handle_tool_calls(self, response, func_tool, task_text, unified_msg_origin, reminder, new_contexts):
+    async def _handle_tool_calls(self, response, func_tool, task_text, unified_msg_origin, reminder):
         """
-        【重构】处理工具调用，并更新上下文。
-        此函数不再决定是否发送消息，只负责执行工具并返回原始结果。
+        【重构】仅执行工具调用，不处理上下文，返回原始结果列表。
         """
         logger.info(f"检测到工具调用: {response.tools_call_name}")
         
-        # 步骤1：将AI的工具调用意图添加到上下文中
-        # to_dict() 方法能将 response 对象转换为符合OpenAI格式的字典
-        if hasattr(response, 'to_dict'):
-            new_contexts.append(response.to_dict())
-        else: # 兼容旧版或不同类型的response对象
-            new_contexts.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{
-                    "id": f"call_{i}", # 模拟一个ID
-                    "type": "function",
-                    "function": {"name": name, "arguments": json.dumps(args)}
-                } for i, (name, args) in enumerate(zip(response.tools_call_name, response.tools_call_args))]
-            })
-
         tool_results = []
         is_private_chat = self.message_handler.is_private_chat(unified_msg_origin)
         send_session_id = self._get_send_session_id(unified_msg_origin, is_private_chat)
@@ -547,7 +527,7 @@ class TaskExecutor:
         for i, func_name in enumerate(response.tools_call_name):
             func_args = response.tools_call_args[i] if i < len(response.tools_call_args) else {}
             tool_call_id = response.tools_call_id[i] if hasattr(response, 'tools_call_id') and response.tools_call_id else f"call_{i}"
-            
+
             logger.info(f"执行工具调用: {func_name}({func_args})")
             
             func_result_str = ""
@@ -558,7 +538,6 @@ class TaskExecutor:
 
                 event = self._create_event_object(task_text, unified_msg_origin, reminder, is_private_chat, send_session_id)
                 
-                # 调用函数
                 if func_obj.handler:
                     func_result = await func_obj.handler(event, **func_args)
                 elif func_obj.mcp_client:
@@ -570,10 +549,9 @@ class TaskExecutor:
                 
                 logger.info(f"函数调用结果类型: {type(func_result)}, 值: {func_result}")
                 
-                # 统一将结果转换为字符串
                 if func_result is None:
                     func_result_str = "函数执行完成，无返回值。"
-                elif hasattr(func_result, 'chain'): # 如果是MessageEventResult
+                elif hasattr(func_result, 'chain'):
                     func_result_str = func_result.get_plain_text() or "函数返回了复杂消息，但无文本内容。"
                 else:
                     func_result_str = str(func_result)
@@ -582,225 +560,22 @@ class TaskExecutor:
                 logger.error(f"执行函数 {func_name} 时出错: {str(e)}")
                 func_result_str = f"错误: {str(e)}"
 
-            # 步骤2：将每个工具的执行结果添加到上下文中
-            new_contexts.append({
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "name": func_name,
-                "content": func_result_str
-            })
-            
-            # 收集原始结果用于后续处理
             tool_results.append({
                 "name": func_name,
-                "result": func_result_str
+                "result": func_result_str,
+                "tool_call_id": tool_call_id
             })
             
         return tool_results
-    
-    async def _handle_complex_messages(self, complex_messages: list, unified_msg_origin: str, reminder: dict):
-        """处理复杂消息类型（图片、文件、视频等）"""
-        import asyncio
-        from astrbot.core.message.components import Plain, Image, File, Video, Record, At, Share
-        
-        for msg_info in complex_messages:
-            func_name = msg_info["name"]
-            message_chain = msg_info["message_chain"]
-            
-            logger.info(f"处理函数 {func_name} 的复杂消息，包含 {len(message_chain.chain)} 个组件")
-            
-            # 创建新的消息链
-            final_msg = MessageChain()
-            
-            # 添加@消息（复用现有逻辑）
-            # 使用 _get_send_session_id 来获取正确的发送会话ID格式
-            is_private_chat = self.message_handler.is_private_chat(unified_msg_origin)
-            original_msg_origin = self._get_send_session_id(unified_msg_origin, is_private_chat)
-            if not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
-                platform_type = get_platform_type_from_origin(original_msg_origin, self.context)
-                if platform_type == "aiocqhttp":
-                    # QQ平台 - 优先使用昵称，回退到ID
-                    if "creator_name" in reminder and reminder["creator_name"]:
-                        final_msg.chain.append(At(qq=reminder["creator_id"], name=reminder["creator_name"]))
-                    else:
-                        final_msg.chain.append(At(qq=reminder["creator_id"]))
-                elif platform_type in self.wechat_platforms:
-                    if "creator_name" in reminder and reminder["creator_name"]:
-                        final_msg.chain.append(Plain(f"@{reminder['creator_name']} "))
-                    else:
-                        final_msg.chain.append(Plain(f"@{reminder['creator_id']} "))
-                else:
-                    final_msg.chain.append(Plain(f"@{reminder['creator_id']} "))
-            
-            # 处理消息链中的每个组件
-            text_parts = []  # 收集文本部分
-            
-            for component in message_chain.chain:
-                if isinstance(component, Plain):
-                    text_parts.append(component.text)
-                elif isinstance(component, Image):
-                    # 先发送累积的文本（如果有）
-                    if text_parts:
-                        final_msg.chain.append(Plain("".join(text_parts)))
-                        text_parts = []
-                    
-                    # 添加图片组件
-                    final_msg.chain.append(component)
-                    
-                    # 发送这条消息
-                    await self._send_complex_message(final_msg, original_msg_origin, func_name, "图片")
-                    
-                    # 添加发送间隔，避免被限流
-                    await asyncio.sleep(0.5)
-                    
-                    # 重置消息链（保留@部分）
-                    final_msg = MessageChain()
-                    if not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
-                        self.message_handler._add_at_message(final_msg, original_msg_origin, reminder)
-                
-                elif isinstance(component, File):
-                    # 先发送累积的文本（如果有）
-                    if text_parts:
-                        final_msg.chain.append(Plain("".join(text_parts)))
-                        text_parts = []
-                    
-                    # 添加文件组件
-                    final_msg.chain.append(component)
-                    
-                    # 发送这条消息
-                    await self._send_complex_message(final_msg, original_msg_origin, func_name, "文件")
-                    
-                    # 添加发送间隔，避免被限流
-                    await asyncio.sleep(0.5)
-                    
-                    # 重置消息链
-                    final_msg = MessageChain()
-                    if not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
-                        self.message_handler._add_at_message(final_msg, original_msg_origin, reminder)
-                
-                elif isinstance(component, Video):
-                    # 先发送累积的文本（如果有）
-                    if text_parts:
-                        final_msg.chain.append(Plain("".join(text_parts)))
-                        text_parts = []
-                    
-                    # 添加视频组件
-                    final_msg.chain.append(component)
-                    
-                    # 发送这条消息
-                    await self._send_complex_message(final_msg, original_msg_origin, func_name, "视频")
-                    
-                    # 添加发送间隔，避免被限流
-                    await asyncio.sleep(0.5)
-                    
-                    # 重置消息链
-                    final_msg = MessageChain()
-                    if not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
-                        self.message_handler._add_at_message(final_msg, original_msg_origin, reminder)
-                
-                elif isinstance(component, Record):
-                    # 先发送累积的文本（如果有）
-                    if text_parts:
-                        final_msg.chain.append(Plain("".join(text_parts)))
-                        text_parts = []
-                    
-                    # 添加语音组件
-                    final_msg.chain.append(component)
-                    
-                    # 发送这条消息
-                    await self._send_complex_message(final_msg, original_msg_origin, func_name, "语音")
-                    
-                    # 添加发送间隔，避免被限流
-                    await asyncio.sleep(0.5)
-                    
-                    # 重置消息链
-                    final_msg = MessageChain()
-                    if not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
-                        self.message_handler._add_at_message(final_msg, original_msg_origin, reminder)
-                
-                elif isinstance(component, Share):
-                    # 先发送累积的文本（如果有）
-                    if text_parts:
-                        final_msg.chain.append(Plain("".join(text_parts)))
-                        text_parts = []
-                    
-                    # 添加分享组件
-                    final_msg.chain.append(component)
-                    
-                    # 发送这条消息
-                    await self._send_complex_message(final_msg, original_msg_origin, func_name, "分享")
-                    
-                    # 添加发送间隔，避免被限流
-                    await asyncio.sleep(0.5)
-                    
-                    # 重置消息链
-                    final_msg = MessageChain()
-                    if not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
-                        self.message_handler._add_at_message(final_msg, original_msg_origin, reminder)
-                
-                else:
-                    # 对于其他类型的组件，尝试直接添加
-                    logger.warning(f"处理未知消息组件类型: {type(component)}")
-                    final_msg.chain.append(component)
-            
-            # 发送剩余的文本（如果有）
-            if text_parts:
-                final_msg.chain.append(Plain("".join(text_parts)))
-            
-            # 如果最终消息链中有内容（除了@之外），发送它
-            # 检查是否有除了@之外的内容
-            has_content = False
-            for comp in final_msg.chain:
-                if not isinstance(comp, At):
-                    has_content = True
-                    break
-            
-            if has_content:
-                await self._send_complex_message(final_msg, original_msg_origin, func_name, "其他")
-    
-    async def _send_complex_message(self, message_chain: MessageChain, original_msg_origin: str, func_name: str, message_type: str):
-        """发送复杂消息"""
-        try:
-            logger.info(f"发送{message_type}消息到: {original_msg_origin} (来自函数: {func_name})")
-            send_result = await self.context.send_message(original_msg_origin, message_chain)
-            logger.info(f"{message_type}消息发送结果: {send_result}")
-        except Exception as e:
-            logger.error(f"发送{message_type}消息失败: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            
-            # 如果发送失败，尝试发送文本描述
-            try:
-                fallback_msg = MessageChain()
-                fallback_msg.chain.append(Plain(f"[{message_type}消息发送失败: {str(e)}]"))
-                await self.context.send_message(original_msg_origin, fallback_msg)
-            except Exception as e2:
-                logger.error(f"发送备用消息也失败: {str(e2)}")
-    
-    def _get_send_session_id(self, unified_msg_origin: str, is_private_chat: bool) -> str:
-        """获取发送会话ID"""
-        # 直接使用 get_original_session_id 的结果，因为它已经正确处理了各种情况
-        send_session_id = self.message_handler.get_original_session_id(unified_msg_origin)
-        
-        # 确保返回的格式是正确的
-        if ":" in send_session_id:
-            # 如果已经是正确格式，直接返回
-            return send_session_id
-        else:
-            # 如果不是正确格式，尝试构造
-            platform_name = get_platform_type_from_origin(unified_msg_origin, self.context)
-            msg_type = "FriendMessage" if is_private_chat else "GroupMessage"
-            return f"{platform_name}:{msg_type}:{send_session_id}"
-    
-    async def _process_tool_results(self, tool_results, task_text, unified_msg_origin) -> str:
+
+    async def _summarize_tool_results(self, tool_results, task_text, unified_msg_origin, provider, system_prompt: str) -> str:
         """
-        【重构】处理工具调用结果，仅负责调用LLM润色并返回最终回复的字符串。
+        【最终修复】不向模型传递 role:tool 历史，而是将工具结果包装在 prompt 中，并传入统一的人设。
         """
-        # 如果没有工具结果，返回一个默认消息
         if not tool_results:
             return "任务已执行。"
 
-        # 构建提示词，让LLM基于工具调用结果生成自然语言响应
+        # 构建一个简单的 prompt，其中包含工具的结果
         tool_results_text = ""
         for tr in tool_results:
             tool_results_text += f"- 工具 `{tr['name']}` 的执行结果:\n```\n{tr['result']}\n```\n"
@@ -810,15 +585,15 @@ class TaskExecutor:
 {tool_results_text}
 
 请对这些结果进行整理和润色，用自然、友好的语言向用户汇报任务的执行情况。直接回复用户，不要提及这是一个定时任务或你调用了什么工具。"""
-        
-        # 获取提供商
-        provider = self.context.get_using_provider()
-        
-        # 使用LLM润色结果，不使用函数调用
+
+        logger.info("二次调用LLM进行结果总结（安全模式，带人设）...")
+        # 第二次调用，只使用 prompt，不传递复杂的 history，但传入统一的 system_prompt
         summary_response = await provider.text_chat(
             prompt=summary_prompt,
             session_id=unified_msg_origin,
-            contexts=[]  # 在这里不使用历史上下文，避免LLM被混淆，只专注于润色当前结果
+            contexts=[], # 传递空上下文，避免兼容性问题
+            func_tool=None, # 总结时不需要再调用工具
+            system_prompt=system_prompt # 传入统一的人设
         )
         
         if summary_response and summary_response.completion_text:
@@ -829,56 +604,44 @@ class TaskExecutor:
             for tr in tool_results:
                 result_text += f"[{tr['name']}]: {tr['result']}\n"
             return result_text.strip()
-    
+
     async def _send_task_result(self, unified_msg_origin: str, reminder: dict, result_msg: MessageChain):
         """发送任务结果"""
-        # 获取正确的发送会话ID格式
         is_private_chat = self.message_handler.is_private_chat(unified_msg_origin)
         original_msg_origin = self._get_send_session_id(unified_msg_origin, is_private_chat)
-        logger.info(f"尝试发送消息到: {original_msg_origin} (原始ID: {unified_msg_origin})")
+        logger.info(f"尝试发送任务结果到: {original_msg_origin} (原始ID: {unified_msg_origin})")
         
-        # 构建最终的消息链，先添加@再添加结果
         final_msg = MessageChain()
         
-        # 根据配置决定是否添加@
-        is_command_task = reminder.get("is_command_task", False)
-        should_at = False
-        if is_command_task:
+        should_at = self.config.get("enable_task_at", True)
+        if reminder.get("is_command_task", False):
             should_at = self.config.get("enable_command_at", False)
-        else:
-            should_at = self.config.get("enable_task_at", True)
         
-        # 添加@，复用提醒模式中的@逻辑
-        if should_at and not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
+        if should_at and not is_private_chat and "creator_id" in reminder and reminder["creator_id"]:
             self.message_handler._add_at_message(final_msg, original_msg_origin, reminder)
         
-        # 添加结果消息内容
         for item in result_msg.chain:
             final_msg.chain.append(item)
         
-        # 确保消息不为空
-        if not final_msg.chain:
-            logger.warning("试图发送一条空消息，已中止。")
+        if not final_msg.chain or all(isinstance(c, At) and not getattr(c, 'name', True) for c in final_msg.chain):
+             # 如果消息链为空，或只包含一个没有名字的@（可能发送失败），则不发送
+            logger.warning("试图发送一条空消息或仅含无效@的消息，已中止。")
             return
 
         send_result = await self.context.send_message(original_msg_origin, final_msg)
-        logger.info(f"消息发送结果: {send_result}")
+        logger.info(f"任务结果消息发送结果: {send_result}")
     
     async def _update_conversation_history(self, original_msg_origin: str, curr_cid: str, new_contexts: list):
         """更新对话历史"""
         try:
-            # 获取原始消息ID（去除用户隔离部分）
-            original_msg_origin = self.message_handler.get_original_session_id(original_msg_origin)
-            
-            # 更新对话历史
             await self.context.conversation_manager.update_conversation(
                 original_msg_origin, 
                 curr_cid, 
                 history=new_contexts
             )
-            logger.info(f"提醒已添加到对话历史，对话ID: {curr_cid}")
+            logger.info(f"任务流程已添加到对话历史，对话ID: {curr_cid}")
         except Exception as e:
-            logger.error(f"更新提醒对话历史失败: {str(e)}")
+            logger.error(f"更新任务对话历史失败: {str(e)}")
 
 
 class ReminderExecutor:
@@ -894,38 +657,33 @@ class ReminderExecutor:
         """执行提醒"""
         logger.info(f"Reminder Activated: {reminder['text']}, created by {unified_msg_origin}")
         
-        # 获取配置
         enable_context = self.config.get("enable_context", True)
         max_context_count = self.config.get("max_context_count", 5)
         context_prompts = self.config.get("context_prompts", "")
         
-        # 获取对话上下文，以便LLM生成更自然的回复
         contexts = []
         curr_cid = None
         conversation = None
         
         if enable_context:
             try:
-                # 获取原始消息ID（去除用户隔离部分）
                 original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
                 curr_cid = await self.context.conversation_manager.get_curr_conversation_id(original_msg_origin)
                 
                 if curr_cid:
                     conversation = await self.context.conversation_manager.get_conversation(original_msg_origin, curr_cid)
                     if conversation:
-                        contexts = json.loads(conversation.history)
+                        history_json = conversation.history or "[]"
+                        contexts = json.loads(history_json)
                         logger.info(f"提醒模式：找到用户对话，对话ID: {curr_cid}, 上下文长度: {len(contexts)}")
             except Exception as e:
                 logger.warning(f"提醒模式：获取对话上下文失败: {str(e)}")
                 contexts = []
         
-        # 构建更丰富的提醒提示词
         user_name = reminder.get("user_name", "用户")
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         
-        # 根据配置决定使用哪种提示词
         if enable_context and len(contexts) > 2:
-            # 有对话历史，可以更自然地引入提醒
             prompt = f"""你现在需要向{user_name}发送一条预设的提醒。
 
 当前时间是 {current_time}
@@ -936,16 +694,13 @@ class ReminderExecutor:
 
 直接输出你要发送的提醒内容，无需说明这是提醒。"""
         else:
-            # 使用配置的提示词模板或默认模板
             if context_prompts:
-                # 使用配置的提示词模板
                 prompt = context_prompts.format(
                     user_name=user_name,
                     reminder_text=reminder['text'],
                     current_time=current_time
                 )
             else:
-                # 使用默认的提示词模板
                 reminder_styles = [
                     f"嘿，{user_name}！这是你设置的提醒：{reminder['text']}",
                     f"提醒时间到了！{reminder['text']}",
@@ -962,25 +717,19 @@ class ReminderExecutor:
         response = await provider.text_chat(
             prompt=prompt,
             session_id=unified_msg_origin,
-            contexts=contexts[:max_context_count] if contexts and enable_context else []  # 根据配置使用上下文
+            contexts=contexts[:max_context_count] if contexts and enable_context else []
         )
         
-        # 发送提醒消息
         await self.message_handler.send_reminder_message(unified_msg_origin, reminder, response.completion_text, is_task=False)
         
-        # 如果有对话上下文且启用上下文功能，记录这次提醒到对话历史
         if curr_cid and conversation and enable_context:
             try:
                 new_contexts = contexts.copy()
-                # 添加系统消息表示这是一个提醒
                 new_contexts.append({"role": "system", "content": f"系统在 {current_time} 触发了提醒: {reminder['text']}"})
-                # 添加AI的回复
                 new_contexts.append({"role": "assistant", "content": response.completion_text})
                 
-                # 获取原始消息ID（去除用户隔离部分）
                 original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
                 
-                # 更新对话历史
                 await self.context.conversation_manager.update_conversation(
                     original_msg_origin, 
                     curr_cid, 
@@ -1004,10 +753,8 @@ class SimpleMessageSender:
         """发送简单消息（当没有提供商时使用）"""
         logger.warning(f"没有可用的提供商，使用简单消息")
         
-        # 构建基础消息链
         msg = MessageChain()
         
-        # 根据配置决定是否添加@
         should_at = False
         if is_command_task:
             should_at = self.config.get("enable_command_at", False)
@@ -1016,16 +763,13 @@ class SimpleMessageSender:
         else:
             should_at = self.config.get("enable_reminder_at", True)
         
-        # 如果不是私聊且存在创建者ID，则添加@（明确使用私聊判断）
         if should_at and not self.message_handler.is_private_chat(unified_msg_origin) and "creator_id" in reminder and reminder["creator_id"]:
-            # 获取原始消息ID用于平台检测
             original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
             self.message_handler._add_at_message(msg, original_msg_origin, reminder)
         
         prefix = "指令任务: " if is_command_task else "任务: " if is_task else "提醒: "
         msg.chain.append(Plain(f"{prefix}{reminder['text']}"))
         
-        # 获取原始消息ID（去除用户隔离部分）
         original_msg_origin = self.message_handler.get_original_session_id(unified_msg_origin)
         logger.info(f"尝试发送简单消息到: {original_msg_origin} (原始ID: {unified_msg_origin})")
         
