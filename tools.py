@@ -557,7 +557,7 @@ class ReminderTools:
         except Exception as e:
             return f"删除提醒或任务时出错：{str(e)}"
 
-    async def list_all_reminders_and_tasks(self, event: Union[AstrMessageEvent, Context], group_id: str | None = None):
+    async def get_all_reminders_and_tasks(self, event: Union[AstrMessageEvent, Context], group_id: str | None = None):
         '''列出当前会话或指定群聊中的所有提醒和任务
         
         Args:

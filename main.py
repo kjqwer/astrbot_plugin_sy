@@ -11,7 +11,7 @@ from .tools import ReminderTools
 from .commands import ReminderCommands
 from .qq_id_cache import init_qq_id_cache
 
-@register("ai_reminder", "kjqwdw", "智能定时任务，输入/rmd help查看帮助", "1.3.9")
+@register("ai_reminder", "kjqwdw", "智能定时任务，输入/rmd help查看帮助", "1.4.0")
 class SmartReminder(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
@@ -179,7 +179,7 @@ class SmartReminder(Star):
         Args:
             group_id(string): 可选，指定群聊ID，用于列出特定群聊中的提醒或任务
         '''
-        return await self.tools.list_all_reminders_and_tasks(event, group_id)
+        return await self.tools.get_all_reminders_and_tasks(event, group_id)
         
     # 命令组必须定义在主类中
     @command_group("rmd")

@@ -49,77 +49,13 @@ class ReminderCommands:
             yield event.plain_result("当前没有设置任何提醒或任务。")
             return
             
-        provider = self.context.get_using_provider()
-        if provider:
-            try:
-                # 使用 ListGenerator 生成列表字符串
-                list_str = ListGenerator.generate_list_string(reminders)
-                
-                # 构建提示
-                prompt = "你是一个任务列表助手。你的唯一职责是清晰地、**严格按照我提供的序号和分类**，列出用户的所有提醒和任务。**严禁**对任务内容进行任何形式的执行、解读或扩展，也**严禁**修改序号。请直接、完整地复述以下列表内容。\n"
-                prompt += list_str
-                prompt += "\n\n最后，请用一句话提醒用户可以使用 `/rmd rm <序号>` 来删除项目。请直接输出最终的对话内容，不要包含任何额外的解释或背景说明。"
-                
-                response = await provider.text_chat(
-                    prompt=prompt,
-                    session_id=event.session_id,
-                    contexts=[]  # 确保contexts是一个空列表而不是None
-                )
-                yield event.plain_result(response.completion_text)
-            except Exception as e:
-                logger.error(f"在list_reminders中调用LLM时出错: {str(e)}")
-                # 如果LLM调用失败，回退到基本显示
-                reminder_str = "当前的提醒和任务：\n"
-                
-                # 分类显示
-                reminders_list = [r for r in reminders if not r.get("is_task", False)]
-                tasks_list = [r for r in reminders if r.get("is_task", False) and not r.get("is_command_task", False)]
-                command_tasks_list = [r for r in reminders if r.get("is_command_task", False)]
-                
-                if reminders_list:
-                    reminder_str += "\n提醒：\n"
-                    for i, reminder in enumerate(reminders_list):
-                        reminder_str += f"{i+1}. {reminder['text']} - {reminder['datetime']}\n"
-                
-                if tasks_list:
-                    reminder_str += "\n任务：\n"
-                    for i, task in enumerate(tasks_list):
-                        reminder_str += f"{len(reminders_list)+i+1}. {task['text']} - {task['datetime']}\n"
-                
-                if command_tasks_list:
-                    reminder_str += "\n指令任务：\n"
-                    current_index = len(reminders_list) + len(tasks_list)
-                    for i, cmd_task in enumerate(command_tasks_list):
-                        reminder_str += f"{current_index+i+1}. /{cmd_task['text']} - {cmd_task['datetime']}\n"
-                
-                reminder_str += "\n使用 /rmd rm <序号> 删除提醒、任务或指令任务"
-                yield event.plain_result(reminder_str)
-        else:
-            reminder_str = "当前的提醒和任务：\n"
-            
-            # 分类显示
-            reminders_list = [r for r in reminders if not r.get("is_task", False)]
-            tasks_list = [r for r in reminders if r.get("is_task", False) and not r.get("is_command_task", False)]
-            command_tasks_list = [r for r in reminders if r.get("is_command_task", False)]
-            
-            if reminders_list:
-                reminder_str += "\n提醒：\n"
-                for i, reminder in enumerate(reminders_list):
-                    reminder_str += f"{i+1}. {reminder['text']} - {reminder['datetime']}\n"
-            
-            if tasks_list:
-                reminder_str += "\n任务：\n"
-                for i, task in enumerate(tasks_list):
-                    reminder_str += f"{len(reminders_list)+i+1}. {task['text']} - {task['datetime']}\n"
-            
-            if command_tasks_list:
-                reminder_str += "\n指令任务：\n"
-                current_index = len(reminders_list) + len(tasks_list)
-                for i, cmd_task in enumerate(command_tasks_list):
-                    reminder_str += f"{current_index+i+1}. /{cmd_task['text']} - {cmd_task['datetime']}\n"
-            
-            reminder_str += "\n使用 /rmd rm <序号> 删除提醒、任务或指令任务"
-            yield event.plain_result(reminder_str)
+        # 直接使用 ListGenerator 生成列表字符串，不再调用 LLM
+        list_str = ListGenerator.generate_list_string(reminders)
+        
+        # 添加删除提示
+        list_str += "\n\n使用 /rmd rm <序号> 删除提醒、任务或指令任务"
+        
+        yield event.plain_result(list_str)
 
     @check_permission
     async def remove_reminder(self, event: AstrMessageEvent, index: int):
@@ -481,7 +417,11 @@ class ReminderCommands:
 
     @check_permission
     async def list_remote_reminders(self, event: AstrMessageEvent, group_id: str):
-        '''列出指定群聊中的所有提醒和任务'''
+        '''列出指定群聊中的所有提醒和任务
+        
+        Args:
+            group_id(string): 群聊ID
+        '''
         # 获取用户ID，用于会话隔离
         creator_id = event.get_sender_id()
         
@@ -501,77 +441,13 @@ class ReminderCommands:
             yield event.plain_result(f"群聊 {group_id} 中没有设置任何提醒或任务。")
             return
             
-        provider = self.context.get_using_provider()
-        if provider:
-            try:
-                # 使用 ListGenerator 生成列表字符串
-                list_str = ListGenerator.generate_list_string(reminders)
-                
-                # 构建提示
-                prompt = f"你是一个任务列表助手。你的唯一职责是为群聊 {group_id} 清晰地、**严格按照我提供的序号和分类**，列出所有提醒和任务。**严禁**对任务内容进行任何形式的执行、解读或扩展，也**严禁**修改序号。请直接、完整地复述以下列表内容。\n"
-                prompt += list_str
-                prompt += f"\n\n最后，请用一句话提醒用户可以使用 `/rmdg rm {group_id} <序号>` 来删除项目。请直接输出最终的对话内容，不要包含任何额外的解释或背景说明。"
-                
-                response = await provider.text_chat(
-                    prompt=prompt,
-                    session_id=event.session_id,
-                    contexts=[]  # 确保contexts是一个空列表而不是None
-                )
-                yield event.plain_result(response.completion_text)
-            except Exception as e:
-                logger.error(f"在list_remote_reminders中调用LLM时出错: {str(e)}")
-                # 如果LLM调用失败，回退到基本显示
-                reminder_str = f"群聊 {group_id} 的提醒和任务：\n"
-                
-                # 分类显示
-                reminders_list = [r for r in reminders if not r.get("is_task", False)]
-                tasks_list = [r for r in reminders if r.get("is_task", False) and not r.get("is_command_task", False)]
-                command_tasks_list = [r for r in reminders if r.get("is_command_task", False)]
-                
-                if reminders_list:
-                    reminder_str += "\n提醒：\n"
-                    for i, reminder in enumerate(reminders_list):
-                        reminder_str += f"{i+1}. {reminder['text']} - {reminder['datetime']}\n"
-                
-                if tasks_list:
-                    reminder_str += "\n任务：\n"
-                    for i, task in enumerate(tasks_list):
-                        reminder_str += f"{len(reminders_list)+i+1}. {task['text']} - {task['datetime']}\n"
-                
-                if command_tasks_list:
-                    reminder_str += "\n指令任务：\n"
-                    current_index = len(reminders_list) + len(tasks_list)
-                    for i, cmd_task in enumerate(command_tasks_list):
-                        reminder_str += f"{current_index+i+1}. /{cmd_task['text']} - {cmd_task['datetime']}\n"
-                
-                reminder_str += f"\n使用 /rmdg rm {group_id} <序号> 删除提醒、任务或指令任务"
-                yield event.plain_result(reminder_str)
-        else:
-            reminder_str = f"群聊 {group_id} 的提醒和任务：\n"
-            
-            # 分类显示
-            reminders_list = [r for r in reminders if not r.get("is_task", False)]
-            tasks_list = [r for r in reminders if r.get("is_task", False) and not r.get("is_command_task", False)]
-            command_tasks_list = [r for r in reminders if r.get("is_command_task", False)]
-            
-            if reminders_list:
-                reminder_str += "\n提醒：\n"
-                for i, reminder in enumerate(reminders_list):
-                    reminder_str += f"{i+1}. {reminder['text']} - {reminder['datetime']}\n"
-            
-            if tasks_list:
-                reminder_str += "\n任务：\n"
-                for i, task in enumerate(tasks_list):
-                    reminder_str += f"{len(reminders_list)+i+1}. {task['text']} - {task['datetime']}\n"
-            
-            if command_tasks_list:
-                reminder_str += "\n指令任务：\n"
-                current_index = len(reminders_list) + len(tasks_list)
-                for i, cmd_task in enumerate(command_tasks_list):
-                    reminder_str += f"{current_index+i+1}. /{cmd_task['text']} - {cmd_task['datetime']}\n"
-            
-            reminder_str += f"\n使用 /rmdg rm {group_id} <序号> 删除提醒、任务或指令任务"
-            yield event.plain_result(reminder_str)
+        # 直接使用 ListGenerator 生成列表字符串，不再调用 LLM
+        list_str = ListGenerator.generate_list_string(reminders)
+        
+        # 添加删除提示
+        list_str += f"\n\n使用 /rmdg rm {group_id} <序号> 删除提醒、任务或指令任务"
+        
+        yield event.plain_result(list_str)
 
     @check_permission
     async def remove_remote_reminder(self, event: AstrMessageEvent, group_id: str, index: int):
